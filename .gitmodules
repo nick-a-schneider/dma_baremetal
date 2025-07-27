@@ -1,0 +1,4 @@
+[submodule "external/bitmap_allocator"]
+	path = external/bitmap_allocator
+	url = https://github.com/nick-a-schneider/bitmap_allocator.git
+	branch = main
