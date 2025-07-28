@@ -18,6 +18,10 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(C_SOURCES
     src/main.c
     src/buffer.c
+    src/dma.c
+    src/gpio.c
+    src/usart.c
+    src/rcc.c
     cmsis/system_stm32f3xx.c)
 
 set(ASM_SOURCES

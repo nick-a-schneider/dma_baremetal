@@ -9,7 +9,11 @@
             "cppStandard": "c++17",
             "browse": {
                 "limitSymbolsToIncludedHeaders": true
-            }
+            },
+            "includePath": [
+                "${workspaceFolder}/cmsis",
+                "${workspaceFolder}/inc",
+            ],
         }
     ],
     "version": 4

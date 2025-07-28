@@ -2,6 +2,8 @@
     "files.associations": {
         "*.html": "html",
         "*.eol": "json",
-        "stdbool.h": "c"
-    }
+        "stdbool.h": "c",
+        "buffer.h": "c"
+    },
+    "cortex-debug.variableUseNaturalFormat": true
 }
