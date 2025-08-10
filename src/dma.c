@@ -4,6 +4,10 @@
 #include <stdbool.h>
 #include <errno.h>
 
+#define DISABLE_DMA_WAIT(channel)                   \
+    channel->CCR &= ~DMA_CCR_EN;                    \
+    while (channel->CCR & DMA_CCR_EN) { __NOP(); }  \
+
 #define DEFINE_DMA_INSTANCE(X)  \
 {                               \
     .on_ht = NULL,              \
@@ -15,6 +19,7 @@
 }
 
 typedef struct {
+    uint16_t size;
     DmaCallback on_ht;
     DmaCallback on_tc;
     void* ht_context;
@@ -40,7 +45,6 @@ static DmaStaticConfig_t DMA_STATIC_CONFIG[12] = {
     DEFINE_DMA_INSTANCE(DMA2_Channel5)
 };
 
-void dmaHwConfigure(DmaInstance_t* instance);
 void DMA_IRQBase(DmaInstance_t* instance);
 
 int registerDmaInstance(DmaInstance_t* instance) {
@@ -50,7 +54,13 @@ int registerDmaInstance(DmaInstance_t* instance) {
     if (registered_instances[dma_id] != NULL) return -EPERM;
     instance->_hw = (void*)&DMA_STATIC_CONFIG[dma_id];
     registered_instances[dma_id] = instance;
-    dmaHwConfigure(instance);
+
+    DMA_Channel_TypeDef* channel = ((DmaStaticConfig_t*)instance->_hw)->dma;
+    const uint32_t rcc_en = (instance->id < 7) ? RCC_AHBENR_DMA1EN : RCC_AHBENR_DMA2EN;
+    RCC->AHBENR |= rcc_en;
+    DISABLE_DMA_WAIT(channel);
+    channel->CCR = instance->config;
+
     return 0;
 }
 
@@ -61,6 +71,28 @@ int unregisterDmaInstance(DmaInstance_t* instance) {
     if (registered_instances[dma_id] != instance) return -EPERM;
     registered_instances[dma_id] = NULL;
     instance->_hw = NULL;
+    return 0;
+}
+
+int configureMemoryAddress(DmaInstance_t* instance, uint32_t* memory, uint16_t size) {
+    int res = disableDma(instance);
+    if (res) return res;
+    DMA_Channel_TypeDef* channel;
+    res = getDmaChannel(instance, &channel);
+    if (res) return res;
+    ((DmaStaticConfig_t*)instance->_hw)->size = size;
+    channel->CMAR = (uint32_t)memory;
+    channel->CNDTR = size;
+    return 0;
+}
+
+int configurePeripheralAddress(DmaInstance_t* instance, uint32_t* peripheral) {
+    int res = disableDma(instance);
+    if (res) return res;
+    DMA_Channel_TypeDef* channel;
+    res = getDmaChannel(instance, &channel);
+    if (res) return res;
+    channel->CPAR = (uint32_t)peripheral;
     return 0;
 }
 
@@ -91,8 +123,11 @@ int enableDma(DmaInstance_t* instance) {
 int disableDma(DmaInstance_t* instance) {
     if (!instance) return -EINVAL;
     if (!instance->_hw) return -EPERM;
-    DMA_Channel_TypeDef* channel = ((DmaStaticConfig_t*)instance->_hw)->dma;
-    channel->CCR &= ~DMA_CCR_EN;
+    DmaStaticConfig_t* static_config = (DmaStaticConfig_t*)instance->_hw;
+    DMA_Channel_TypeDef* channel = static_config->dma;
+    // if (0 < channel->CNDTR  && channel->CNDTR < static_config->size) return -EBUSY;
+    DISABLE_DMA_WAIT(channel);
+    channel->CNDTR = 0; 
     return 0;
 }
 
@@ -127,18 +162,7 @@ int getDmaChannel(DmaInstance_t* instance, DMA_Channel_TypeDef** channel) {
     if (!instance->_hw) return -EPERM;
     if (!channel) return -EINVAL;
     *channel = ((DmaStaticConfig_t*)instance->_hw)->dma;
-}
-
-void dmaHwConfigure(DmaInstance_t* instance) {
-    DMA_Channel_TypeDef* channel = ((DmaStaticConfig_t*)instance->_hw)->dma;
-    const uint32_t rcc_en = (instance->id < 7) ? RCC_AHBENR_DMA1EN : RCC_AHBENR_DMA2EN;
-    RCC->AHBENR |= rcc_en;
-    channel->CCR &= ~DMA_CCR_EN;
-    channel->CPAR = instance->peripheral;
-    channel->CMAR = instance->buffer->raw;
-    channel->CNDTR = instance->buffer->size;
-    channel->CCR = instance->config;
-    return;
+    return 0;
 }
 
 void DMA_IRQBase(DmaInstance_t* instance) {

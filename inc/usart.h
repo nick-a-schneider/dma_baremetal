@@ -2,7 +2,7 @@
 
 #include <stdint.h>
 #include <stddef.h>
-#include "buffer.h"
+#include <stdbool.h>
 
 #define USART_OK 0
 
@@ -14,8 +14,7 @@ typedef enum {
 
 typedef struct {
     const void *_hw;  // opaque handle to internal static config
-    Buffer *rx_buffer;
-    Buffer *tx_buffer;
+    uint16_t rx_len;
     uint32_t baudrate;  // Baud rate for USART communication
     UsartId_t id;  // ID of the USART instance
     // SemaphoreHandle_t tx_semaphore;
@@ -25,9 +24,12 @@ typedef void (*UsartCallback)(UsartInstance_t* instance, void* context);
 
 int registerUsartInstance(UsartInstance_t* instance);
 int unregisterUsartInstance(UsartInstance_t* instance);
-int applyIdleRxCallback(UsartInstance_t* instance, UsartCallback callback);
-int usartBufferWrite(UsartInstance_t* instance, uint8_t* message, uint16_t length);
-int usartWrite(UsartInstance_t* instance, uint8_t* message, uint16_t length);
+
+int applyIdleRxCallback(UsartInstance_t* instance, UsartCallback callback, void* context);
+int applyTxCompleteCallback(UsartInstance_t* instance, UsartCallback callback, void* context);
+
+int usartWrite(UsartInstance_t* instance, uint32_t* message, uint16_t length);
+int usartSetReadAddress(UsartInstance_t* instance, uint32_t* address, uint16_t length);
+
 int enableUsart(UsartInstance_t* instance);
 int disableUsart(UsartInstance_t* instance);
-bool usartTxBusy(UsartInstance_t* instance);

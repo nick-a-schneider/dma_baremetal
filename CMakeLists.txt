@@ -1,15 +1,18 @@
 cmake_minimum_required(VERSION 3.20)
 
+include(FetchContent)
 
-message(STATUS "Updating Git submodules...")
-message(STATUS "dir: ${CMAKE_SOURCE_DIR}")
-execute_process(
-    COMMAND git submodule update --remote --merge
-    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-    RESULT_VARIABLE result
-)
-if(NOT result EQUAL 0)
-    message(FATAL_ERROR "Git submodule update failed with result: ${result}")
+if(NOT TARGET buffers)
+    message(STATUS "Fetching buffers...")
+    FetchContent_Declare(
+        buffers
+        GIT_REPOSITORY https://github.com/nick-a-schneider/buffers.git
+        GIT_TAG master
+    )
+    FetchContent_MakeAvailable(buffers)
+endif()
+if(NOT TARGET buffers)
+    message(FATAL_ERROR "buffers not found")
 endif()
 
 project(dma_baremetal C ASM)
@@ -17,7 +20,6 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Source files
 set(C_SOURCES
     src/main.c
-    src/buffer.c
     src/dma.c
     src/gpio.c
     src/usart.c
@@ -27,12 +29,13 @@ set(C_SOURCES
 set(ASM_SOURCES
     startup_stm32f303xe.s)
 
-add_subdirectory(external/bitmap_allocator)
-
 # Executable target
 add_executable(${PROJECT_NAME}.elf
     ${C_SOURCES}
     ${ASM_SOURCES})
+
+target_link_libraries(${PROJECT_NAME}.elf PRIVATE
+    buffers)
 
 # Include directories
 target_include_directories(${PROJECT_NAME}.elf PRIVATE
@@ -43,7 +46,7 @@ target_include_directories(${PROJECT_NAME}.elf PRIVATE
 target_compile_definitions(${PROJECT_NAME}.elf PRIVATE
     STM32F303xE)
 
-   # Common compile flags for all targets
+# Common compile flags for all targets
 set(MCU_FLAGS
     -mcpu=cortex-m4
     -mthumb
@@ -78,8 +81,8 @@ target_compile_options(${PROJECT_NAME}.elf PRIVATE ${COMMON_C_FLAGS} ${MCU_FLAGS
 target_link_options(${PROJECT_NAME}.elf PRIVATE ${COMMON_LINK_FLAGS} ${MCU_FLAGS})
 
 # Also apply to the allocator target
-target_compile_options(bitmap_allocator PRIVATE ${COMMON_C_FLAGS} ${MCU_FLAGS})  
-target_link_libraries(${PROJECT_NAME}.elf PRIVATE bitmap_allocator)
+target_compile_options(buffers PRIVATE ${COMMON_C_FLAGS} ${MCU_FLAGS})  
+target_link_libraries(${PROJECT_NAME}.elf PRIVATE buffers)
 
 # Post-build: generate HEX and BIN, show size
 add_custom_command(TARGET ${PROJECT_NAME}.elf POST_BUILD

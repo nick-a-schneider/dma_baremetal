@@ -1,53 +1,85 @@
 #include "rcc.h"
 #include "usart.h"
-#include "buffer.h"
-#include "allocator.h"
+#include "queue.h"
 #include "dma.h"
 
 #include <stdbool.h>
 #include <stdint.h>
 
-#define RAW 2048
-#define BUFFER_SIZE 256
+#define MESSAGE_SIZE 32
+#define QUEUE_SIZE 12
 
-uint8_t mem[RAW];
-Allocator allocator;
+typedef struct {
+    Queue* queue;
+    uint16_t errors;
+    uint16_t q_rx_idx, q_tx_idx;
+    uint32_t* rx_addr, tx_addr;
+} UsartQueueState_t;
 
-void usartRxCallback(UsartInstance_t* instance, void* context __attribute__((unused))) {
-    uint8_t data[20];
-    uint8_t len = 0;
-    while (bufferRead(instance->rx_buffer, &data[len++])) {}
-    while (usartTxBusy(instance)) {}
-    (void)usartWrite(instance, data, len);
+void usartRxCallback(UsartInstance_t* instance, void* context) {
+    UsartQueueState_t* state = (UsartQueueState_t*)context;
+
+    int res = queueWriteRelease(state->queue, state->q_rx_idx);
+    if (res < QUEUE_OK) state->errors++;
+
+    state->q_rx_idx = queueWriteClaim(state->queue, &state->rx_addr);
+    if (state->q_rx_idx < QUEUE_OK) state->errors++;
+
+    res = usartSetReadAddress(instance, state->rx_addr, MESSAGE_SIZE);
+    if (res < USART_OK) state->errors++;
+
+    state->q_tx_idx = queueReadClaim(state->queue, &state->tx_addr);
+    if (state->q_tx_idx < QUEUE_OK) state->errors++;
+
+    res = usartWrite(instance, state->tx_addr, instance->rx_len);
+    if (res < USART_OK) state->errors++;
+}
+
+void usartTxCallback(UsartInstance_t* instance __attribute__((unused)), void* context) {
+    UsartQueueState_t* state = (UsartQueueState_t*)context;
+    int res = queueReadRelease(state->queue, state->q_tx_idx);
+    if (res < QUEUE_OK) state->errors++;
 }
 
 int main(void) {
-    rccInit();
-    
-    uint8_t errors = 0;
-    uint8_t writes = 0;
-    uint8_t pending = 0;
 
-    initAllocator(&allocator, 32, mem, RAW);
-    Buffer* rx_buffer = bufferAllocate(&allocator, BUFFER_SIZE - 1);
-    Buffer* tx_buffer = bufferAllocate(&allocator, BUFFER_SIZE - 1);
+    rccInit();
+
+    CREATE_QUEUE(queue, MESSAGE_SIZE, QUEUE_SIZE);
+    
+    UsartQueueState_t state = {
+        .queue = &queue,
+        .q_rx_idx = 0,
+        .q_tx_idx = 0,
+        .rx_addr = NULL,
+        .tx_addr = NULL,
+        .errors = 0
+    };
 
     UsartInstance_t usart2 = {
         .id = USART_2_ID,
         .baudrate = 38400,
-        .rx_buffer = rx_buffer,
-        .tx_buffer = tx_buffer,
     };
+    int res;
+    res = registerUsartInstance(&usart2);
+    if (res < USART_OK) state.errors++;
 
-    if(registerUsartInstance(&usart2) != USART_OK) {
-        errors++;
-    }
-    if (applyIdleRxCallback(&usart2, usartRxCallback) != USART_OK) {
-        errors++;
-    }
-    if (enableUsart(&usart2) != USART_OK) {
-        errors++;
-    }
+    res = applyIdleRxCallback(&usart2, usartRxCallback, (void*)&state);
+    if (res < USART_OK) state.errors++;
+
+    res = applyTxCompleteCallback(&usart2, usartTxCallback, (void*)&state);
+    if (res < USART_OK) state.errors++;
+
+    state.q_rx_idx = queueWriteClaim(state.queue, &state.rx_addr);
+    if (state.q_rx_idx < QUEUE_OK) state.errors++;
+
+    res = usartSetReadAddress(&usart2, state.rx_addr, MESSAGE_SIZE);
+    if (res < USART_OK) state.errors++;
+
+    res = enableUsart(&usart2);
+    if (res < USART_OK) state.errors++;
+
     while (true) {}
+
     return 0;
 }

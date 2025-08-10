@@ -1,27 +1,31 @@
 {
   "version": "2.0.0",
   "tasks": [
-    {
-      "label": "Build Project",
-      "type": "shell",
-      "command": "make",
-      "args": [
-        "-C", "${workspaceFolder}/build"
-      ],
-      "group": {
-        "kind": "build",
-        "isDefault": true
-      },
-      "icon": {
-        "id": "terminal-build",
-        "color": "terminal.ansiGreen"
-      },
-      "options": {
-        "statusbar": {
-          "color" : "#a8f8a8"
-        }
-      }
-    },
+     {
+            "label": "Configure CMake",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "-G", "Unix Makefiles",
+                "-S", ".",
+                "-B", "build",
+                // "-DBUILD_TESTS=ON",  
+                "-DCMAKE_BUILD_TYPE=Debug",
+                // "-DUSE_BITMAP_ALLOCATOR=ON",
+                "-DCMAKE_TOOLCHAIN_FILE=${workspaceFolder}/arm-none-eabi-gcc.cmake"
+            ],
+            "icon": { "id": "tools" },
+        },
+        {
+            "label": "Compile",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--build", "build",
+                "--verbose"
+            ],
+            "icon": { "id": "gear" },
+        },
     {
       "label": "Flash Device",
       "type": "shell",

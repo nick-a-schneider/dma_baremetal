@@ -1,7 +1,6 @@
 
 #include "stm32f303xe.h"
 #include "usart.h"
-#include "buffer.h"
 #include "dma.h"
 #include "gpio.h"
 
@@ -19,10 +18,12 @@ typedef struct {
     uint32_t rcc_gpio_mask;
     IRQn_Type usart_irq;
     IRQn_Type tx_dma_irq;
-    uint16_t rx_count;
-    uint16_t tx_count;
     bool tx_busy;
+    uint16_t rx_limit;
     UsartCallback rx_callback;
+    UsartCallback tx_callback;
+    void* rx_callback_context;
+    void* tx_callback_context;
 } UsartStaticConfig_t;
 
 static UsartStaticConfig_t USART_STATIC_CONFIG[3] = {
@@ -109,6 +110,15 @@ int enableUsart(UsartInstance_t* instance) {
     usart->CR1 |= USART_CR1_UE;
     NVIC_SetPriority(config->usart_irq, 2);
     NVIC_EnableIRQ(config->usart_irq);
+    // usart->ICR |= USART_ICR_IDLECF; // clear idle flag
+    // (void)usart->ISR;   // Read ISR    
+    // (void)usart->RDR;   // Then read RDR
+    // while (usart->ISR & USART_ISR_IDLE) {
+    //     usart->ICR |= USART_ICR_IDLECF; // clear idle flag
+    //     (void)usart->ISR;   // Read ISR    
+    //     (void)usart->RDR;   // Then read RDR
+    // }
+    // usart->ICR |= USART_ICR_IDLECF; // clear idle flag
     return USART_OK;
 }
 
@@ -125,7 +135,6 @@ int disableUsart(UsartInstance_t* instance) {
 int usartHwConfigure(UsartInstance_t* instance) {
     UsartStaticConfig_t* config = (UsartStaticConfig_t*)instance->_hw;
     USART_TypeDef* usart = config->usart;
-    config->rx_count = 0;
     // Enable the GPIO port clock
     RCC->AHBENR |= config->rcc_gpio_mask;
     RCC->APB1ENR |= config->rcc_apb_mask;
@@ -136,18 +145,15 @@ int usartHwConfigure(UsartInstance_t* instance) {
     DmaInstance_t* rx_dma = &config->rx_dma;
     DmaInstance_t* tx_dma = &config->tx_dma;
 
-    rx_dma->buffer = instance->rx_buffer;
-    tx_dma->buffer = instance->tx_buffer;
-
-    rx_dma->config = DMA_CCR_MINC | DMA_CCR_CIRC; // memory increment, circular mode
+    rx_dma->config = DMA_CCR_MINC; // | DMA_CCR_CIRC; // memory increment, circular mode
     tx_dma->config = DMA_CCR_MINC | DMA_CCR_DIR; // memory increment, memory to peripheral
 
-    rx_dma->peripheral = (uint32_t)&config->usart->RDR; 
-    tx_dma->peripheral = (uint32_t)&config->usart->TDR;
-    
+
     (void)registerDmaInstance(rx_dma);
     (void)registerDmaInstance(tx_dma);
-    setDmaTransferCount(tx_dma, 0);
+
+    (void)configurePeripheralAddress(rx_dma, (uint32_t*)&config->usart->RDR);
+    (void)configurePeripheralAddress(tx_dma, (uint32_t*)&config->usart->TDR);
 
     (void)applyTransferCompleteCallback(tx_dma, usartDmaTxCallback, (void*)instance);
 
@@ -187,70 +193,46 @@ void applyUsartConfig(USART_TypeDef* usart, uint32_t baudrate) {
                 | USART_CR3_DMAR;    // Enable DMA for RX
 }
 
-int usartBufferWrite(UsartInstance_t* instance, uint8_t* message, uint16_t length) {
+int usartWrite(UsartInstance_t* instance, uint32_t* message, uint16_t length) {
     if (!instance) return -EINVAL;
     if (!instance->_hw) return -EPERM;
     if (!message || length == 0) return -EINVAL; // Invalid parameters
-    Buffer* tx_buffer = instance->tx_buffer;
-    if (length > tx_buffer->size) return -EFBIG;
     UsartStaticConfig_t* config = (UsartStaticConfig_t*)instance->_hw;
-    if (config->tx_busy) return EBUSY; // DMA is currently busy, cannot write
-
-    if (config->tx_count + length > tx_buffer->size) {
-        (void)usartBufferSend(instance);
-        while (config->tx_busy) {};
-    }
-    uint8_t* head = (uint8_t*)(tx_buffer->raw + config->tx_count);
-    for (uint16_t i = 0; i < length; i++) {
-        head[i] = message[i];
-    }
-    config->tx_count += length;
-    return 0;
+    if (config->tx_busy) return -EBUSY; // DMA is currently busy, cannot write
+    int res = configureMemoryAddress(&config->tx_dma, message, length);
+    if (res < 0) return res; 
+    config->tx_busy = true;
+    return enableDma(&config->tx_dma);
 }
 
-int usartBufferSend(UsartInstance_t* instance) {
+int usartSetReadAddress(UsartInstance_t* instance, uint32_t* address, uint16_t length) {
     if (!instance) return -EINVAL;
     if (!instance->_hw) return -EPERM;
+    if (!address || length == 0) return -EINVAL; // Invalid parameters
     UsartStaticConfig_t* config = (UsartStaticConfig_t*)instance->_hw;
-
-    DMA_Channel_TypeDef* channel;
-    (void)getDmaChannel(&config->tx_dma, &channel);
-    config->tx_busy = true;
-    channel->CCR &= ~DMA_CCR_EN;
-    channel->CNDTR = config->tx_count;
-    channel->CCR |= DMA_CCR_EN;
-    return USART_OK;
+    config->rx_limit = length;
+    int res =  configureMemoryAddress(&config->rx_dma, address, length);
+    if (res < 0) return res; 
+    return enableDma(&config->rx_dma);
 }
 
-int usartWrite(UsartInstance_t* instance, uint8_t* message, uint16_t length) {
-    if (!instance) return -EINVAL;
-    if (!instance->_hw) return -EPERM;
-    if (!message || length == 0) return -EINVAL;
-    UsartStaticConfig_t* config = (UsartStaticConfig_t*)instance->_hw;
-    if (config->tx_busy) return EBUSY;
-    DMA_Channel_TypeDef* channel;
-    (void)getDmaChannel(&config->tx_dma, &channel);
-    config->tx_busy = true;
-    channel->CCR &= ~DMA_CCR_EN;
-    channel->CMAR = (uint32_t)message;
-    channel->CNDTR = length;
-    channel->CCR |= DMA_CCR_EN;
-    return USART_OK;  
-}
-
-bool usartTxBusy(UsartInstance_t* instance) {
-    if (!instance) return true;
-    if (!instance->_hw) return true;
-    UsartStaticConfig_t* config = (UsartStaticConfig_t*)instance->_hw;
-    return config->tx_busy;
-}
-
-int applyIdleRxCallback(UsartInstance_t* instance, UsartCallback callback) {
+int applyIdleRxCallback(UsartInstance_t* instance, UsartCallback callback, void* context) {
     if (!instance) return -EINVAL;
     if (!instance->_hw) return -EPERM;
     if (!callback) return -EINVAL;
     UsartStaticConfig_t* config = (UsartStaticConfig_t*)instance->_hw;
     config->rx_callback = callback;
+    config->rx_callback_context = context;
+    return USART_OK;
+}
+
+int applyTxCompleteCallback(UsartInstance_t* instance, UsartCallback callback, void* context) {
+    if (!instance) return -EINVAL;
+    if (!instance->_hw) return -EPERM;
+    if (!callback) return -EINVAL;
+    UsartStaticConfig_t* config = (UsartStaticConfig_t*)instance->_hw;
+    config->tx_callback = callback;
+    config->tx_callback_context = context;
     return USART_OK;
 }
 
@@ -258,8 +240,8 @@ void usartDmaTxCallback(DmaInstance_t* instance, void* context) {
     UsartInstance_t* usart_instance = (UsartInstance_t*)context;
     UsartStaticConfig_t* config = (UsartStaticConfig_t*)usart_instance->_hw;
     config->tx_busy = false;
-    config->tx_count = 0;
     (void)disableDma(&config->tx_dma);
+    if (config->tx_callback) config->tx_callback(usart_instance, config->tx_callback_context);
 }
 
 void USART_IRQBase(UsartInstance_t* instance) {
@@ -269,16 +251,11 @@ void USART_IRQBase(UsartInstance_t* instance) {
     if (usart->ISR & USART_ISR_IDLE) {
         usart->ICR |= USART_ICR_IDLECF;
         DmaInstance_t* rx_dma = &config->rx_dma;
-        uint16_t prev_cndtr = config->rx_count;
         uint16_t current_cndtr;
         (void)getDmaTransferCount(rx_dma, &current_cndtr);
-        uint16_t buffer_size = instance->rx_buffer->size;
-        uint16_t received_now = (prev_cndtr >= current_cndtr) 
-                                ? (prev_cndtr - current_cndtr) 
-                                : (prev_cndtr + (buffer_size - current_cndtr));
-        config->rx_count = current_cndtr;
-        __bufferMoveHead(instance->rx_buffer, received_now);
-        if (config->rx_callback) config->rx_callback(instance, NULL);
+        instance->rx_len = config->rx_limit - current_cndtr;
+        if (!instance->rx_len) return; // random isr trigger, ignore
+        if (config->rx_callback) config->rx_callback(instance, config->rx_callback_context);
     }
 }
 
