@@ -1,7 +1,6 @@
 #include "rcc.h"
 #include "usart.h"
 #include "queue.h"
-#include "dma.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -12,8 +11,10 @@
 typedef struct {
     Queue* queue;
     uint16_t errors;
-    uint16_t q_rx_idx, q_tx_idx;
-    uint32_t* rx_addr, tx_addr;
+    uint16_t q_rx_idx;
+    uint16_t q_tx_idx;
+    uint32_t* rx_addr;
+    uint32_t* tx_addr;
 } UsartQueueState_t;
 
 void usartRxCallback(UsartInstance_t* instance, void* context) {
@@ -57,14 +58,15 @@ int main(void) {
     };
 
     UsartInstance_t usart2 = {
-        .id = USART_2_ID,
+        .id = USART2_ID,
         .baudrate = 38400,
     };
+
     int res;
     res = registerUsartInstance(&usart2);
     if (res < USART_OK) state.errors++;
 
-    res = applyIdleRxCallback(&usart2, usartRxCallback, (void*)&state);
+    res = applyRxIdleCallback(&usart2, usartRxCallback, (void*)&state);
     if (res < USART_OK) state.errors++;
 
     res = applyTxCompleteCallback(&usart2, usartTxCallback, (void*)&state);

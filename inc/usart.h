@@ -1,16 +1,11 @@
 #pragma once
 
+#include "bsp.h"
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
 
 #define USART_OK 0
-
-typedef enum {
-    USART_1_ID = 0,
-    USART_2_ID = 1,
-    USART_3_ID = 2
-} UsartId_t;
 
 typedef struct {
     const void *_hw;  // opaque handle to internal static config
@@ -25,7 +20,7 @@ typedef void (*UsartCallback)(UsartInstance_t* instance, void* context);
 int registerUsartInstance(UsartInstance_t* instance);
 int unregisterUsartInstance(UsartInstance_t* instance);
 
-int applyIdleRxCallback(UsartInstance_t* instance, UsartCallback callback, void* context);
+int applyRxIdleCallback(UsartInstance_t* instance, UsartCallback callback, void* context);
 int applyTxCompleteCallback(UsartInstance_t* instance, UsartCallback callback, void* context);
 
 int usartWrite(UsartInstance_t* instance, uint32_t* message, uint16_t length);

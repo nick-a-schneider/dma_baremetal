@@ -1,5 +1,6 @@
 
 #include "stm32f303xe.h"
+#include "bsp.h"
 #include "usart.h"
 #include "dma.h"
 #include "gpio.h"
@@ -26,52 +27,9 @@ typedef struct {
     void* tx_callback_context;
 } UsartStaticConfig_t;
 
-static UsartStaticConfig_t USART_STATIC_CONFIG[3] = {
-// #ifdef USE_USART1
-    {
-        .usart = USART1,
-        .rx_dma = { .id = DMA1_Channel5_ID },
-        .tx_dma = { .id = DMA1_Channel4_ID },
-        .port = GPIOA,
-        .tx_pin = 2,
-        .rx_pin = 3,
-        .rcc_apb_mask = RCC_APB2ENR_USART1EN,
-        .rcc_gpio_mask = RCC_AHBENR_GPIOAEN,
-        .usart_irq = USART1_IRQn,
-        .tx_dma_irq = DMA1_Channel4_IRQn
-    },
-// #endif
-// #ifdef USE_USART2
-    {
-        .usart = USART2,
-        .rx_dma = { .id = DMA1_Channel6_ID },
-        .tx_dma = { .id = DMA1_Channel7_ID },
-        .port = GPIOA,
-        .tx_pin = 2,
-        .rx_pin = 3,
-        .rcc_apb_mask = RCC_APB1ENR_USART2EN,
-        .rcc_gpio_mask = RCC_AHBENR_GPIOAEN,
-        .usart_irq = USART2_IRQn,
-        .tx_dma_irq = DMA1_Channel7_IRQn
-    },
-// #endif
-// #ifdef USE_USART3
-    {
-        .usart = USART3,
-        .rx_dma = { .id = DMA1_Channel3_ID },
-        .tx_dma = { .id = DMA1_Channel2_ID },
-        .port = GPIOA,
-        .tx_pin = 2,
-        .rx_pin = 3,
-        .rcc_apb_mask = RCC_APB1ENR_USART3EN,
-        .rcc_gpio_mask = RCC_AHBENR_GPIOBEN,
-        .usart_irq = USART3_IRQn,
-        .tx_dma_irq = DMA1_Channel2_IRQn
-    }
-// #endif
-};
+static UsartStaticConfig_t USART_STATIC_CONFIG[BSP_USART_COUNT] = { BSP_USART_CHANNELS };
 
-static UsartInstance_t* registered_instances[3] = { NULL, NULL, NULL };
+static UsartInstance_t* registered_instances[BSP_USART_COUNT] = { NULL };
 
 int usartHwConfigure(UsartInstance_t* instance);
 void applyUsartConfig(USART_TypeDef* usart, uint32_t baudrate);
@@ -110,15 +68,6 @@ int enableUsart(UsartInstance_t* instance) {
     usart->CR1 |= USART_CR1_UE;
     NVIC_SetPriority(config->usart_irq, 2);
     NVIC_EnableIRQ(config->usart_irq);
-    // usart->ICR |= USART_ICR_IDLECF; // clear idle flag
-    // (void)usart->ISR;   // Read ISR    
-    // (void)usart->RDR;   // Then read RDR
-    // while (usart->ISR & USART_ISR_IDLE) {
-    //     usart->ICR |= USART_ICR_IDLECF; // clear idle flag
-    //     (void)usart->ISR;   // Read ISR    
-    //     (void)usart->RDR;   // Then read RDR
-    // }
-    // usart->ICR |= USART_ICR_IDLECF; // clear idle flag
     return USART_OK;
 }
 
@@ -216,7 +165,7 @@ int usartSetReadAddress(UsartInstance_t* instance, uint32_t* address, uint16_t l
     return enableDma(&config->rx_dma);
 }
 
-int applyIdleRxCallback(UsartInstance_t* instance, UsartCallback callback, void* context) {
+int applyRxIdleCallback(UsartInstance_t* instance, UsartCallback callback, void* context) {
     if (!instance) return -EINVAL;
     if (!instance->_hw) return -EPERM;
     if (!callback) return -EINVAL;
@@ -259,14 +208,4 @@ void USART_IRQBase(UsartInstance_t* instance) {
     }
 }
 
-void USART1_IRQHandler(void) {
-    USART_IRQBase(registered_instances[USART_1_ID]);
-}
-
-void USART2_IRQHandler(void) {
-    USART_IRQBase(registered_instances[USART_2_ID]);
-}
-
-void USART3_IRQHandler(void) {
-    USART_IRQBase(registered_instances[USART_3_ID]);
-}
+BSP_USART_IRQS(USART_IRQBase, registered_instances);

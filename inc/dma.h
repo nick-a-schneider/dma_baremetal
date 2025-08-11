@@ -2,23 +2,9 @@
 #pragma once
 
 #include "stm32f303xe.h"
+#include "bsp.h"
 #include <stdint.h>
 #include <stddef.h>
-
-typedef enum {
-    DMA1_Channel1_ID = 0,
-    DMA1_Channel2_ID = 1,    
-    DMA1_Channel3_ID = 2,
-    DMA1_Channel4_ID = 3,
-    DMA1_Channel5_ID = 4,
-    DMA1_Channel6_ID = 5,
-    DMA1_Channel7_ID = 6,
-    DMA2_Channel1_ID = 7,
-    DMA2_Channel2_ID = 8,
-    DMA2_Channel3_ID = 9,
-    DMA2_Channel4_ID = 10,
-    DMA2_Channel5_ID = 11
-} DmaChannelId_t;
 
 typedef struct {
     uint32_t config;

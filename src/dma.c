@@ -1,4 +1,5 @@
 #include "stm32f303xe.h"
+#include "bsp.h"
 #include "dma.h"
 #include <stdint.h>
 #include <stdbool.h>
@@ -7,16 +8,6 @@
 #define DISABLE_DMA_WAIT(channel)                   \
     channel->CCR &= ~DMA_CCR_EN;                    \
     while (channel->CCR & DMA_CCR_EN) { __NOP(); }  \
-
-#define DEFINE_DMA_INSTANCE(X)  \
-{                               \
-    .on_ht = NULL,              \
-    .on_tc = NULL,              \
-    .ht_context = NULL,         \
-    .tc_context = NULL,         \
-    .dma = X,                   \
-    .irq = X##_IRQn             \
-}
 
 typedef struct {
     uint16_t size;
@@ -28,35 +19,22 @@ typedef struct {
     IRQn_Type irq;
 } DmaStaticConfig_t;
 
-static DmaInstance_t* registered_instances[12] = { NULL };
+static DmaInstance_t* registered_instances[BSP_DMA_COUNT] = { NULL };
 
-static DmaStaticConfig_t DMA_STATIC_CONFIG[12] = {
-    DEFINE_DMA_INSTANCE(DMA1_Channel1),
-    DEFINE_DMA_INSTANCE(DMA1_Channel2),
-    DEFINE_DMA_INSTANCE(DMA1_Channel3),
-    DEFINE_DMA_INSTANCE(DMA1_Channel4),
-    DEFINE_DMA_INSTANCE(DMA1_Channel5),        
-    DEFINE_DMA_INSTANCE(DMA1_Channel6),
-    DEFINE_DMA_INSTANCE(DMA1_Channel7),
-    DEFINE_DMA_INSTANCE(DMA2_Channel1),
-    DEFINE_DMA_INSTANCE(DMA2_Channel2),
-    DEFINE_DMA_INSTANCE(DMA2_Channel3),
-    DEFINE_DMA_INSTANCE(DMA2_Channel4),
-    DEFINE_DMA_INSTANCE(DMA2_Channel5)
-};
+static DmaStaticConfig_t DMA_STATIC_CONFIG[BSP_DMA_COUNT] = {BSP_DMA_CHANNELS};
 
 void DMA_IRQBase(DmaInstance_t* instance);
 
 int registerDmaInstance(DmaInstance_t* instance) {
     if (!instance) return -EINVAL;
     DmaChannelId_t dma_id = instance->id;
-    if (dma_id < 0 || dma_id > 11) return -ENODEV;
+    if (dma_id < 0 || dma_id >= BSP_DMA_COUNT) return -ENODEV;
     if (registered_instances[dma_id] != NULL) return -EPERM;
     instance->_hw = (void*)&DMA_STATIC_CONFIG[dma_id];
     registered_instances[dma_id] = instance;
 
     DMA_Channel_TypeDef* channel = ((DmaStaticConfig_t*)instance->_hw)->dma;
-    const uint32_t rcc_en = (instance->id < 7) ? RCC_AHBENR_DMA1EN : RCC_AHBENR_DMA2EN;
+    const uint32_t rcc_en = (instance->id < 7) ? RCC_AHBENR_DMA1EN : RCC_AHBENR_DMA2EN; // TODO: BSP
     RCC->AHBENR |= rcc_en;
     DISABLE_DMA_WAIT(channel);
     channel->CCR = instance->config;
@@ -67,7 +45,7 @@ int registerDmaInstance(DmaInstance_t* instance) {
 int unregisterDmaInstance(DmaInstance_t* instance) {
     if (!instance) return -EINVAL;
     DmaChannelId_t dma_id = instance->id;
-    if (dma_id < 0 || dma_id > 11) return -ENODEV;
+    if (dma_id < 0 || dma_id >= BSP_DMA_COUNT) return -ENODEV;   // TODO: BSP
     if (registered_instances[dma_id] != instance) return -EPERM;
     registered_instances[dma_id] = NULL;
     instance->_hw = NULL;
@@ -168,8 +146,8 @@ int getDmaChannel(DmaInstance_t* instance, DMA_Channel_TypeDef** channel) {
 void DMA_IRQBase(DmaInstance_t* instance) {
     if (!instance || !instance->_hw) return;
 
-    DMA_TypeDef* dma = (instance->id < 7) ? DMA1 : DMA2;
-    const uint32_t TC_BIT = (1U << (4 * ((instance->id % 7))));
+    DMA_TypeDef* dma = (instance->id < 7) ? DMA1 : DMA2;        // TODO: BSP
+    const uint32_t TC_BIT = (1U << (4 * ((instance->id % 7)))); // TODO: BSP
     DmaStaticConfig_t* static_config = (DmaStaticConfig_t*)instance->_hw;
 
     if (dma->ISR & TC_BIT) {
@@ -183,39 +161,4 @@ void DMA_IRQBase(DmaInstance_t* instance) {
     }
 }
 
-void DMA1_Channel1_IRQHandler(void) {
-    DMA_IRQBase(registered_instances[DMA1_Channel1_ID]);
-}
-void DMA1_Channel2_IRQHandler(void) {
-    DMA_IRQBase(registered_instances[DMA1_Channel2_ID]);
-}
-void DMA1_Channel3_IRQHandler(void) {
-    DMA_IRQBase(registered_instances[DMA1_Channel3_ID]);
-}
-void DMA1_Channel4_IRQHandler(void) {
-    DMA_IRQBase(registered_instances[DMA1_Channel4_ID]);
-}
-void DMA1_Channel5_IRQHandler(void) {
-    DMA_IRQBase(registered_instances[DMA1_Channel5_ID]);
-}
-void DMA1_Channel6_IRQHandler(void) {
-    DMA_IRQBase(registered_instances[DMA1_Channel6_ID]);
-}
-void DMA1_Channel7_IRQHandler(void) {
-    DMA_IRQBase(registered_instances[DMA1_Channel7_ID]);
-}
-void DMA2_Channel1_IRQHandler(void) {
-    DMA_IRQBase(registered_instances[DMA2_Channel1_ID]);
-}
-void DMA2_Channel2_IRQHandler(void) {
-    DMA_IRQBase(registered_instances[DMA2_Channel2_ID]);
-}
-void DMA2_Channel3_IRQHandler(void) {
-    DMA_IRQBase(registered_instances[DMA2_Channel3_ID]);
-}
-void DMA2_Channel4_IRQHandler(void) {
-    DMA_IRQBase(registered_instances[DMA2_Channel4_ID]);
-}
-void DMA2_Channel5_IRQHandler(void) {
-    DMA_IRQBase(registered_instances[DMA2_Channel5_ID]);
-}
+BSP_DMA_IRQS(DMA_IRQBase, registered_instances);
