@@ -40,7 +40,7 @@ void usartDmaTxCallback(DmaInstance_t* instance, void* context);
 int registerUsartInstance(UsartInstance_t* instance) {
     if (!instance) return -EINVAL;
     UsartId_t usart_id = instance->id;
-    if (usart_id < 0 || usart_id >= 3) return -ENODEV;
+    if (usart_id < 0 || usart_id >= BSP_USART_COUNT) return -ENODEV;
     if (registered_instances[usart_id] != NULL) return -EPERM;
     instance->_hw = (void*)&USART_STATIC_CONFIG[usart_id];
     registered_instances[usart_id] = instance;
@@ -50,7 +50,7 @@ int registerUsartInstance(UsartInstance_t* instance) {
 int unregisterUsartInstance(UsartInstance_t* instance) {
     if (!instance) return -EINVAL;
     (void)disableUsart(instance);
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < BSP_USART_COUNT; i++) {
         if (registered_instances[i] == instance) {
             registered_instances[i] = NULL;
             instance->_hw = NULL;
@@ -101,8 +101,8 @@ int usartHwConfigure(UsartInstance_t* instance) {
     (void)registerDmaInstance(rx_dma);
     (void)registerDmaInstance(tx_dma);
 
-    (void)configurePeripheralAddress(rx_dma, (uint32_t*)&config->usart->RDR);
-    (void)configurePeripheralAddress(tx_dma, (uint32_t*)&config->usart->TDR);
+    (void)configurePeripheralAddress(rx_dma, (uint32_t*)&usart->RDR);
+    (void)configurePeripheralAddress(tx_dma, (uint32_t*)&usart->TDR);
 
     (void)applyTransferCompleteCallback(tx_dma, usartDmaTxCallback, (void*)instance);
 

@@ -8,31 +8,27 @@
 #define MESSAGE_SIZE 32
 #define QUEUE_SIZE 12
 
+volatile bool active;
+
 typedef struct {
     Queue* queue;
     uint16_t errors;
-    uint16_t q_rx_idx;
-    uint16_t q_tx_idx;
+    int q_rx_idx;
+    int q_tx_idx;
     uint32_t* rx_addr;
     uint32_t* tx_addr;
 } UsartQueueState_t;
 
 void usartRxCallback(UsartInstance_t* instance, void* context) {
     UsartQueueState_t* state = (UsartQueueState_t*)context;
-
-    int res = queueWriteRelease(state->queue, state->q_rx_idx);
+    active = true;
+    int res = queueWriteRelease(state->queue, state->q_rx_idx, instance->rx_len);
     if (res < QUEUE_OK) state->errors++;
 
     state->q_rx_idx = queueWriteClaim(state->queue, &state->rx_addr);
     if (state->q_rx_idx < QUEUE_OK) state->errors++;
 
     res = usartSetReadAddress(instance, state->rx_addr, MESSAGE_SIZE);
-    if (res < USART_OK) state->errors++;
-
-    state->q_tx_idx = queueReadClaim(state->queue, &state->tx_addr);
-    if (state->q_tx_idx < QUEUE_OK) state->errors++;
-
-    res = usartWrite(instance, state->tx_addr, instance->rx_len);
     if (res < USART_OK) state->errors++;
 }
 
@@ -81,7 +77,20 @@ int main(void) {
     res = enableUsart(&usart2);
     if (res < USART_OK) state.errors++;
 
-    while (true) {}
+    while (true) {
+        int tmp;
+        uint32_t* addr;
+        int res = USART_OK;
+        while (active) {
+            tmp = queueReadClaim(state.queue, &addr);
+            if (tmp == -EBUSY) continue;
+            if (tmp < USART_OK) break;
+            state.q_tx_idx = tmp;
+            state.tx_addr = addr;
+            res = usartWrite(&usart2, state.tx_addr, usart2.rx_len);
+        }
+        active = false;
+    }
 
     return 0;
 }
