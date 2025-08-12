@@ -33,8 +33,6 @@ static UsartInstance_t* registered_instances[BSP_USART_COUNT] = { NULL };
 
 int usartHwConfigure(UsartInstance_t* instance);
 void applyUsartConfig(USART_TypeDef* usart, uint32_t baudrate);
-int usartBufferSend(UsartInstance_t* instance);
-
 void usartDmaTxCallback(DmaInstance_t* instance, void* context);
 
 int registerUsartInstance(UsartInstance_t* instance) {

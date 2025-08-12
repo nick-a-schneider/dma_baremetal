@@ -16,7 +16,6 @@ typedef struct {
     int q_rx_idx;
     int q_tx_idx;
     uint32_t* rx_addr;
-    uint32_t* tx_addr;
 } UsartQueueState_t;
 
 void usartRxCallback(UsartInstance_t* instance, void* context) {
@@ -49,7 +48,6 @@ int main(void) {
         .q_rx_idx = 0,
         .q_tx_idx = 0,
         .rx_addr = NULL,
-        .tx_addr = NULL,
         .errors = 0
     };
 
@@ -79,15 +77,19 @@ int main(void) {
 
     while (true) {
         int tmp;
+        uint16_t len;
         uint32_t* addr;
         int res = USART_OK;
         while (active) {
-            tmp = queueReadClaim(state.queue, &addr);
-            if (tmp == -EBUSY) continue;
+            tmp = queueReadClaim(&queue, &addr, &len);
+            if (tmp == -EBUSY) {
+                // sleep 
+                for (int i = 0; i < 10000; i++) __NOP();
+                continue;
+            }
             if (tmp < USART_OK) break;
             state.q_tx_idx = tmp;
-            state.tx_addr = addr;
-            res = usartWrite(&usart2, state.tx_addr, usart2.rx_len);
+            res = usartWrite(&usart2, addr, len);
         }
         active = false;
     }
